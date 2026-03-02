@@ -39,22 +39,22 @@ def update_token():
 def fetch_data():
     data = {}
     try:
-        token = update_token()
-        if token:
-            print("received token correctly, fetching data")
-        else:
-            print("token is empty, aborting data fetch")
-            return
+        # token = update_token()
+        # if token:
+        #     print("received token correctly, fetching data")
+        # else:
+        #     print("token is empty, aborting data fetch")
+        #     return
         
         begin_time=datetime.now(timezone.utc)
         params = {
-            "time": int(begin_time.timestamp()),
+            # "time": int(begin_time.timestamp()),
         }
         
         url = "https://opensky-network.org/api/states/all"
         
         headers = {
-            "Authorization": f"Bearer {token}"
+            # "Authorization": f"Bearer {token}"
         }
         
         print("log debug", f"Sent\tGET\t{url}\t{headers}\t{params}\t''")
