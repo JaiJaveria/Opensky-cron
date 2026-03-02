@@ -3,8 +3,16 @@ from datetime import datetime, timezone
 import os
 def update_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-    CLIENT_ID=os.environ["CLIENT_ID"]
-    CLIENT_SECRET=os.environ["CLIENT_SECRET"]
+    if "CLIENT_ID" in os.environ:
+        CLIENT_ID=os.environ["CLIENT_ID"]
+    else:
+        print("client id not specified to connect to opensky api, aborting")
+        return ""
+    if "CLIENT_SECRET" in os.environ:
+        CLIENT_SECRET=os.environ["CLIENT_SECRET"]
+    else:
+        print("client secret key not specified to connect to opensky api, aborting")
+        return ""
     data = {
         "grant_type": "client_credentials",
         "client_id": CLIENT_ID,
