@@ -4,8 +4,8 @@
 name: Python application
 
 on:
-  push:
-    branches: [ "main" ]
+  schedule:
+    - cron: "*/2 * * * *"
   workflow_dispatch:   # lets you manually trigger it from GitHub UI
 permissions:
   contents: read
