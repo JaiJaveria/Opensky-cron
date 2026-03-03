@@ -6,7 +6,6 @@ name: Python application
 on:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch:   # lets you manually trigger it from GitHub UI
 permissions:
   contents: read
 
