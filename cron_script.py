@@ -77,11 +77,12 @@ def fetch_data():
 
 if __name__ == "__main__":
     data = fetch_data()
+    return_val = 0
     if data:
         print("data fetch successful at time:", data['time'], datetime.fromtimestamp(data['time'], tz= timezone.utc), len(data['states']), "state vectors received")
     else:
         print("received no data, aborting")
-        sys.exit()
+        sys.exit(1)
     fleet = pd.read_csv('ME3_fleet.csv')
     icaovals = set(fleet['icao24'])
 
@@ -92,7 +93,7 @@ if __name__ == "__main__":
         DB_URL=os.environ["DB_URL"]
     else:
         print("url for database to connect to not specified, aborting")
-        sys.exit()
+        sys.exit(2)
     
     try:
         conn = psycopg2.connect(DB_URL,connect_timeout=30)
@@ -152,6 +153,7 @@ if __name__ == "__main__":
         print(f"data successfully written to postgres")
     except Exception as e:
         print(f"error occured: {e}, couldnt send data")
+        return_val = 3
         if 'conn' in locals() and conn is not None:
             conn.rollback()
     finally:
@@ -159,4 +161,6 @@ if __name__ == "__main__":
             cursor.close()
         if 'conn' in locals() and conn is not None:
             conn.close()
+    
+    sys.exit(return_val)
 
