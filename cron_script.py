@@ -1,6 +1,10 @@
 import requests
 from datetime import datetime, timezone
 import os
+import pandas as pd
+import psycopg2
+import sys
+
 def update_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
     if "CLIENT_ID" in os.environ:
@@ -20,7 +24,6 @@ def update_token():
     }
     token = ""
     try:
-        print("log debug", f"Sent\tPOST\t{url}\t''\t''\t{data}")
         response = requests.post(url, data=data, timeout=30)
         try:
             response.raise_for_status()
@@ -39,25 +42,23 @@ def update_token():
 def fetch_data():
     data = {}
     try:
-        # token = update_token()
-        # if token:
-        #     print("received token correctly, fetching data")
-        # else:
-        #     print("token is empty, aborting data fetch")
-        #     return
+        token = update_token()
+        if token:
+            print("received token correctly, fetching data")
+        else:
+            print("token is empty, aborting data fetch")
+            return
         
         begin_time=datetime.now(timezone.utc)
         params = {
-            # "time": int(begin_time.timestamp()),
         }
         
         url = "https://opensky-network.org/api/states/all"
         
         headers = {
-            # "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {token}"
         }
         
-        print("log debug", f"Sent\tGET\t{url}\t{headers}\t{params}\t''")
         response = requests.get(url, headers=headers, params=params)
         print("log debug", f"RECV\t{response.status_code}\t{response.headers}")
         try:
@@ -78,3 +79,84 @@ if __name__ == "__main__":
     data = fetch_data()
     if data:
         print("data fetch successful at time:", data['time'], datetime.fromtimestamp(data['time'], tz= timezone.utc), len(data['states']), "state vectors received")
+    else:
+        print("received no data, aborting")
+        sys.exit()
+    fleet = pd.read_csv('ME3_fleet.csv')
+    icaovals = set(fleet['icao24'])
+
+    filtdata =  [d for d in data['states'] if d[0] in icaovals]
+    print(f"{len(filtdata)} aircrafts' state vectors will be saved.")
+
+    if "DB_URL" in os.environ:
+        DB_URL=os.environ["DB_URL"]
+    else:
+        print("url for database to connect to not specified, aborting")
+        sys.exit()
+    
+    try:
+        conn = psycopg2.connect(DB_URL,connect_timeout=30)
+        cur = conn.cursor()
+        insert_query = """
+        INSERT INTO aircraft_states (
+            snapshot_id,
+            icao24,
+            callsign,
+            origin_country,
+            time_position,
+            last_contact,
+            longitude,
+            latitude,
+            baro_altitude,
+            geo_altitude,
+            on_ground,
+            velocity,
+            true_track,
+            vertical_rate,
+            squawk,
+            spi,
+            position_source,
+            category
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        );
+        """
+        cur.execute("insert into state_snapshots (opensky_timestamp) values (%s) returning id", (datetime.fromtimestamp(data['time'], tz = timezone.utc),) )
+
+        snapshot_id=cur.fetchone()[0]
+        print("snapshot id is",snapshot_id)
+        for row in filtdata:
+            cur.execute(insert_query, (
+                snapshot_id,
+                row[0],                          # icao24
+                row[1].strip() if row[1] else None,
+                row[2],
+                datetime.fromtimestamp(row[3], tz = timezone.utc) if row[3] else None,
+                datetime.fromtimestamp(row[4], tz = timezone.utc) if row[4] else None,
+                row[5],
+                row[6],
+                row[7],
+                row[13],                         # geo_altitude
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[14],
+                row[15],
+                row[16],
+                row[17] if len(row) >17 else None
+            ))
+
+        conn.commit()
+        print(f"data successfully written to postgres")
+    except Exception as e:
+        print(f"error occured: {e}, couldnt send data")
+        if 'conn' in locals() and conn is not None:
+            conn.rollback()
+    finally:
+        if 'cursor' in locals() and cursor is not None:
+            cursor.close()
+        if 'conn' in locals() and conn is not None:
+            conn.close()
+
