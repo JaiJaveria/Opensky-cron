@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import psycopg2
 import sys
+import time
 
 def update_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
@@ -39,27 +40,17 @@ def update_token():
 
     
     return token
-def fetch_data():
+def fetch_data(token):
     data = {}
     try:
-        token = update_token()
-        if token:
-            print("received token correctly, fetching data")
-        else:
-            print("token is empty, aborting data fetch")
-            return
-        
-        begin_time=datetime.now(timezone.utc)
-        params = {
-        }
         
         url = "https://opensky-network.org/api/states/all"
-        
+
         headers = {
             "Authorization": f"Bearer {token}"
         }
         
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers)
         print("log debug", f"RECV\t{response.status_code}\t{response.headers}")
         try:
             response.raise_for_status()
@@ -74,26 +65,12 @@ def fetch_data():
         print(f"Unexpected error: {e}")
     return data
 
-
-if __name__ == "__main__":
-    data = fetch_data()
+def push_data(icaovals, data, DB_URL):
     return_val = 0
-    if data:
-        print("data fetch successful at time:", data['time'], datetime.fromtimestamp(data['time'], tz= timezone.utc), len(data['states']), "state vectors received")
-    else:
-        print("received no data, aborting")
-        sys.exit(1)
-    fleet = pd.read_csv('ME3_fleet.csv')
-    icaovals = set(fleet['icao24'])
-
+    if not data:
+        return 4
     filtdata =  [d for d in data['states'] if d[0] in icaovals]
     print(f"{len(filtdata)} aircrafts' state vectors will be saved.")
-
-    if "DB_URL" in os.environ:
-        DB_URL=os.environ["DB_URL"]
-    else:
-        print("url for database to connect to not specified, aborting")
-        sys.exit(2)
     
     try:
         conn = psycopg2.connect(DB_URL,connect_timeout=30)
@@ -157,10 +134,44 @@ if __name__ == "__main__":
         if 'conn' in locals() and conn is not None:
             conn.rollback()
     finally:
-        if 'cursor' in locals() and cursor is not None:
-            cursor.close()
+        if 'cur' in locals() and cur is not None:
+            cur.close()
         if 'conn' in locals() and conn is not None:
             conn.close()
+    return return_val
+
+
+
+if __name__ == "__main__":
     
-    sys.exit(return_val)
+    fleet = pd.read_csv('ME3_fleet.csv')
+    icaovals = set(fleet['icao24'])
+    i=0
+    
+    if "DB_URL" in os.environ:
+        DB_URL=os.environ["DB_URL"]
+    else:
+        print("url for database to connect to not specified, aborting")
+        sys.exit(2)
+    finalret = 0
+    while i in range(30):
+        if(i%10==0):
+            token = update_token()
+            if token:
+                print("received token correctly, fetching data")
+            else:
+                print("token is empty, aborting data fetch")
+                sys.exit(1)
+        
+        data = fetch_data(token)
+        if data:
+            print("data fetch successful at time:", data['time'], datetime.fromtimestamp(data['time'], tz= timezone.utc), len(data['states']), "state vectors received")
+        else:
+            print("received no data in this iteration")
+        success = push_data(icaovals, data, DB_URL)
+        if success !=0:
+            finalret= success
+        time.sleep(120)
+    
+    sys.exit(finalret)
 
