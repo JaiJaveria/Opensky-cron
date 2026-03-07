@@ -14,6 +14,41 @@ def handle_shutdown(signum, frame):
     print(f"Received signal {signum}. Initiating clean shutdown...", flush=True)
     shutdown_event.set()
 
+def check_leadership(DB_URL, my_start_time):
+    try:
+        conn = psycopg2.connect(DB_URL, connect_timeout=30)
+        conn.autocommit = True
+        cur = conn.cursor()
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cron_leader (
+                id INT PRIMARY KEY,
+                start_time DOUBLE PRECISION
+            );
+        """)
+        cur.execute("""
+            INSERT INTO cron_leader (id, start_time) VALUES (1, %s)
+            ON CONFLICT (id) DO NOTHING;
+        """, (0.0,))
+        
+        cur.execute("SELECT start_time FROM cron_leader WHERE id = 1;")
+        row = cur.fetchone()
+        leader_start_time = row[0] if row else 0.0
+        
+        if leader_start_time > my_start_time:
+            return False
+            
+        cur.execute("UPDATE cron_leader SET start_time = %s WHERE id = 1;", (my_start_time,))
+    except Exception as e:
+        print(f"Error checking leadership: {e}")
+        return True
+    finally:
+        if 'cur' in locals() and cur is not None:
+             cur.close()
+        if 'conn' in locals() and conn is not None:
+             conn.close()
+    return True
+
 def update_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
     if "CLIENT_ID" in os.environ:
@@ -158,6 +193,8 @@ if __name__ == "__main__":
     icaovals = set(fleet['icao24'])
     i=0
     
+    my_start_time = time.time()
+    
     if "DB_URL" in os.environ:
         DB_URL=os.environ["DB_URL"]
     else:
@@ -178,9 +215,17 @@ if __name__ == "__main__":
             print("data fetch successful at time:", data['time'], datetime.fromtimestamp(data['time'], tz= timezone.utc), len(data['states']), "state vectors received")
         else:
             print("received no data in this iteration")
+            
         success = push_data(icaovals, data, DB_URL)
         if success !=0:
             finalret= success
+            
+        if data:
+            # Check if we are still the newest running cron job after a successful fetch/push cycle
+            is_leader = check_leadership(DB_URL, my_start_time)
+            if not is_leader:
+                print("A newer cron job has successfully fetched data and claimed leadership. Shutting down this older instance cleanly.", flush=True)
+                break
             
         i += 1
         
