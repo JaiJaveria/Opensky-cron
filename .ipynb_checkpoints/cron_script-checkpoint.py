@@ -5,14 +5,6 @@ import pandas as pd
 import psycopg2
 import sys
 import time
-import signal
-import threading
-
-shutdown_event = threading.Event()
-
-def handle_shutdown(signum, frame):
-    print(f"Received signal {signum}. Initiating clean shutdown...", flush=True)
-    shutdown_event.set()
 
 def update_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
@@ -151,8 +143,6 @@ def push_data(icaovals, data, DB_URL):
 
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, handle_shutdown)
-    signal.signal(signal.SIGINT, handle_shutdown)
     
     fleet = pd.read_csv('ME3_fleet.csv')
     icaovals = set(fleet['icao24'])
@@ -164,7 +154,7 @@ if __name__ == "__main__":
         print("url for database to connect to not specified, aborting")
         sys.exit(2)
     finalret = 0
-    while not shutdown_event.is_set():
+    while i in range(30):
         if(i%10==0):
             token = update_token()
             if token:
@@ -181,14 +171,7 @@ if __name__ == "__main__":
         success = push_data(icaovals, data, DB_URL)
         if success !=0:
             finalret= success
-            
-        i += 1
-        
-        # Wait for 120 seconds or until shutdown is signaled
-        if shutdown_event.wait(120):
-            print("Shutdown signal received while sleeping. Exiting...", flush=True)
-            break
-            
-    print("Exiting cleanly.", flush=True)
+        time.sleep(120)
+    
     sys.exit(finalret)
 
